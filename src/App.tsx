@@ -125,6 +125,7 @@ function App() {
           });
         }
       } else if (data.type === 'file-chunk') {
+        console.log(`App: Received file chunk ${data.chunkIndex} for transfer ${data.transferId}`);
         fileTransferService.handleIncomingChunk(data);
       }
     });
@@ -262,8 +263,16 @@ function App() {
             icon: '📤'
           });
 
+          // Start sending chunks asynchronously
           fileTransferService.sendFileChunks(transferId, (data: any) => {
+            console.log(`App: Sending ${data.type} for transfer ${data.transferId || transferId}`);
             return peerService.sendData(peerId, data);
+          }).catch(error => {
+            console.error(`App: Failed to send file chunks:`, error);
+            toast.error(`❌ Failed to send file: ${error.message}`, {
+              duration: 4000,
+              position: 'top-right'
+            });
           });
         }
       } catch (error) {

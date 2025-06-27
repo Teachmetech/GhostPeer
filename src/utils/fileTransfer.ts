@@ -123,24 +123,33 @@ export class FileTransferService {
 
   async handleIncomingChunk(message: any): Promise<void> {
     const { transferId, chunkIndex, encryptedData, iv, checksum, isLastChunk } = message;
+    console.log(`FileTransfer: Processing chunk ${chunkIndex} for transfer ${transferId}`);
+
     let transfer = this.activeTransfers.get(transferId);
 
     if (!transfer) {
       console.error('Received chunk for unknown transfer:', transferId);
-      // Try to find transfer by looking for any transfer with matching peer
+      console.log('Active transfers:', Array.from(this.activeTransfers.keys()));
+
+      // Try to find transfer by looking for any transfer with matching peer - remove the size check
       const allTransfers = Array.from(this.activeTransfers.values());
-      transfer = allTransfers.find(t => t.status === 'transferring' && !t.file.size);
+      console.log('All transfers:', allTransfers.map(t => ({ id: t.id, status: t.status, peerId: t.peerId })));
+
+      transfer = allTransfers.find(t => t.status === 'transferring');
 
       if (!transfer) {
-        console.error('No matching transfer found for chunk');
+        console.error('No matching transfer found for chunk - available transfers:', allTransfers.length);
         return;
       }
 
+      console.log(`Found fallback transfer with ID ${transfer.id}, updating to ${transferId}`);
       // Update the map with correct ID
       this.activeTransfers.delete(transfer.id);
       transfer.id = transferId;
       this.activeTransfers.set(transferId, transfer);
     }
+
+    console.log(`FileTransfer: Found transfer for chunk ${chunkIndex}, proceeding with decryption`);
 
     try {
       // Decrypt chunk
@@ -148,12 +157,16 @@ export class FileTransferService {
       const ivArray = new Uint8Array(iv);
       const decryptedData = await EncryptionService.decrypt(encryptedBuffer, transfer.encryptionKey, ivArray);
 
+      console.log(`FileTransfer: Successfully decrypted chunk ${chunkIndex}, size: ${decryptedData.byteLength}`);
+
       // Verify checksum
       const isValid = await EncryptionService.verifyChecksum(decryptedData, checksum);
       if (!isValid) {
         this.handleTransferError(transferId, `Checksum verification failed for chunk ${chunkIndex}`);
         return;
       }
+
+      console.log(`FileTransfer: Checksum verified for chunk ${chunkIndex}`);
 
       // Store chunk for file reconstruction
       if (!this.receivedChunks.has(transferId)) {
@@ -166,11 +179,17 @@ export class FileTransferService {
       transfer.progress = ((chunkIndex + 1) / totalChunks) * 100;
       transfer.speed = this.calculateTransferSpeed(transfer, (chunkIndex + 1) * FileTransferService.CHUNK_SIZE);
 
+      console.log(`FileTransfer: Progress updated: ${transfer.progress}% (chunk ${chunkIndex + 1}/${totalChunks})`);
+
       this.transferCallbacks.get(transferId)?.onProgress(transfer);
 
       if (isLastChunk) {
+        console.log(`FileTransfer: Last chunk received, reconstructing file`);
+
         // Reconstruct the complete file
         const completeFile = await this.reconstructFile(transferId, transfer.file.name);
+
+        console.log(`FileTransfer: File reconstructed, size: ${completeFile.size}, downloading...`);
 
         // Download the file automatically
         this.downloadFile(completeFile, transfer.file.name);
@@ -180,8 +199,11 @@ export class FileTransferService {
 
         // Clean up
         this.receivedChunks.delete(transferId);
+
+        console.log(`FileTransfer: Transfer ${transferId} completed successfully`);
       }
     } catch (error) {
+      console.error(`FileTransfer: Error processing chunk ${chunkIndex}:`, error);
       this.handleTransferError(transferId, `Failed to process chunk ${chunkIndex}: ${error}`);
     }
   }
