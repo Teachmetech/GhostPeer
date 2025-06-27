@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/logo.svg" alt="GhostPeer Logo" width="120" height="120">
+  <img src="public/logo-white.svg" alt="GhostPeer Logo" width="120" height="120">
   
   # GhostPeer
   
