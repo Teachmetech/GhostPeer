@@ -1,6 +1,10 @@
-# 👻 GhostPeer
-
-**Secure, Serverless Peer-to-Peer File Sharing**
+<div align="center">
+  <img src="public/logo.svg" alt="GhostPeer Logo" width="120" height="120">
+  
+  # GhostPeer
+  
+  **Secure, Serverless Peer-to-Peer File Sharing**
+</div>
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/yourusername/ghostpeer)
 [![Live Demo](https://img.shields.io/badge/demo-ghostpeer.io-blue)](https://ghostpeer.io)
