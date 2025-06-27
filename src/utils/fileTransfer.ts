@@ -217,6 +217,17 @@ export class FileTransferService {
     return Array.from(this.activeTransfers.values());
   }
 
+  // Method to register an incoming transfer directly (used by receiving side)
+  registerIncomingTransfer(
+    transfer: FileTransfer,
+    onProgress: (transfer: FileTransfer) => void,
+    onComplete: (transfer: FileTransfer) => void,
+    onError: (transfer: FileTransfer, error: string) => void
+  ): void {
+    this.activeTransfers.set(transfer.id, transfer);
+    this.transferCallbacks.set(transfer.id, { onProgress, onComplete, onError });
+  }
+
   private generateTransferId(): string {
     return `transfer_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
   }

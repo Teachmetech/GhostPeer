@@ -8,6 +8,7 @@ import { SecurityStatus } from './components/SecurityStatus';
 import { PeerService } from './utils/peerService';
 import { FileTransferService } from './utils/fileTransfer';
 import { FileTransfer } from './types';
+import { EncryptionService } from './utils/encryption';
 
 function App() {
   const [peerService] = useState(() => new PeerService());
@@ -64,15 +65,30 @@ function App() {
       if (data.type === 'transfer-start') {
         console.log('Incoming file transfer:', data);
 
-        // Create a mock file object for the incoming transfer
-        const mockFile = new File([''], data.fileName, { type: 'application/octet-stream' });
-        Object.defineProperty(mockFile, 'size', { value: data.fileSize, writable: false });
-
         try {
-          // Create incoming transfer
-          const transferId = await fileTransferService.startFileTransfer(
-            mockFile,
-            peerId,
+          // Import the encryption key from the sender
+          const encryptionKey = await EncryptionService.importKey(data.encryptionKey);
+
+          // Create a mock file object for the incoming transfer
+          const mockFile = new File([''], data.fileName, { type: 'application/octet-stream' });
+          Object.defineProperty(mockFile, 'size', { value: data.fileSize, writable: false });
+
+          // Create the transfer object directly with sender's ID and key
+          const transfer: FileTransfer = {
+            id: data.transferId, // Use sender's transfer ID
+            file: mockFile,
+            status: 'transferring',
+            progress: 0,
+            speed: 0,
+            startTime: Date.now(),
+            encryptionKey: encryptionKey, // Use sender's encryption key
+            checksum: data.checksum,
+            peerId: peerId
+          };
+
+          // Register the incoming transfer in fileTransferService
+          fileTransferService.registerIncomingTransfer(
+            transfer,
             (transfer: FileTransfer) => {
               setTransfers(prev => prev.map(t => t.id === transfer.id ? transfer : t));
             },
@@ -93,19 +109,14 @@ function App() {
             }
           );
 
-          // Update the transfer with the actual transfer ID from the sender
-          const transfer = fileTransferService.getTransfer(transferId);
-          if (transfer) {
-            transfer.id = data.transferId; // Use sender's transfer ID
-            transfer.status = 'transferring';
-            setTransfers(prev => [...prev, transfer]);
+          // Add to UI
+          setTransfers(prev => [...prev, transfer]);
 
-            toast(`📥 Receiving: ${data.fileName}`, {
-              duration: 3000,
-              position: 'top-right',
-              icon: '📥'
-            });
-          }
+          toast(`📥 Receiving: ${data.fileName}`, {
+            duration: 3000,
+            position: 'top-right',
+            icon: '📥'
+          });
         } catch (error) {
           console.error('Failed to setup incoming transfer:', error);
           toast.error('❌ Failed to setup incoming transfer', {
