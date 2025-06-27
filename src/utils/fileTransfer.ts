@@ -2,7 +2,7 @@ import { FileTransfer, TransferChunk } from '../types';
 import { EncryptionService } from './encryption';
 
 export class FileTransferService {
-  private static readonly CHUNK_SIZE = 64 * 1024; // 64KB chunks
+  private static readonly CHUNK_SIZE = 4 * 1024; // 4KB chunks (very safe for PeerJS)
   private activeTransfers = new Map<string, FileTransfer>();
   private transferCallbacks = new Map<string, {
     onProgress: (transfer: FileTransfer) => void;
@@ -97,8 +97,8 @@ export class FileTransferService {
         type: 'file-chunk',
         transferId,
         chunkIndex: i,
-        encryptedData: Array.from(new Uint8Array(encrypted)),
-        iv: Array.from(iv),
+        encryptedData: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+        iv: btoa(String.fromCharCode(...iv)),
         checksum: chunkChecksum,
         isLastChunk: chunk.isLastChunk
       };
@@ -152,9 +152,9 @@ export class FileTransferService {
     console.log(`FileTransfer: Found transfer for chunk ${chunkIndex}, proceeding with decryption`);
 
     try {
-      // Decrypt chunk
-      const encryptedBuffer = new Uint8Array(encryptedData).buffer;
-      const ivArray = new Uint8Array(iv);
+      // Decrypt chunk - decode from base64
+      const encryptedBuffer = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0)).buffer;
+      const ivArray = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
       const decryptedData = await EncryptionService.decrypt(encryptedBuffer, transfer.encryptionKey, ivArray);
 
       console.log(`FileTransfer: Successfully decrypted chunk ${chunkIndex}, size: ${decryptedData.byteLength}`);
