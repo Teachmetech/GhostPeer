@@ -9,6 +9,7 @@ export class FileTransferService {
     onComplete: (transfer: FileTransfer) => void;
     onError: (transfer: FileTransfer, error: string) => void;
   }>();
+  private receivedChunks = new Map<string, ArrayBuffer[]>(); // Store chunks for incoming files
 
   async startFileTransfer(
     file: File,
@@ -79,7 +80,7 @@ export class FileTransferService {
       const start = i * FileTransferService.CHUNK_SIZE;
       const end = Math.min(start + FileTransferService.CHUNK_SIZE, file.size);
       const chunkData = await this.readFileChunk(file, start, end);
-      
+
       // Encrypt chunk
       const { encrypted, iv } = await EncryptionService.encrypt(chunkData, encryptionKey);
       const chunkChecksum = await EncryptionService.generateChecksum(chunkData);
@@ -110,7 +111,7 @@ export class FileTransferService {
       sentChunks++;
       transfer.progress = (sentChunks / totalChunks) * 100;
       transfer.speed = this.calculateTransferSpeed(transfer, sentChunks * FileTransferService.CHUNK_SIZE);
-      
+
       this.transferCallbacks.get(transferId)?.onProgress(transfer);
     }
 
@@ -122,11 +123,23 @@ export class FileTransferService {
 
   async handleIncomingChunk(message: any): Promise<void> {
     const { transferId, chunkIndex, encryptedData, iv, checksum, isLastChunk } = message;
-    const transfer = this.activeTransfers.get(transferId);
-    
+    let transfer = this.activeTransfers.get(transferId);
+
     if (!transfer) {
       console.error('Received chunk for unknown transfer:', transferId);
-      return;
+      // Try to find transfer by looking for any transfer with matching peer
+      const allTransfers = Array.from(this.activeTransfers.values());
+      transfer = allTransfers.find(t => t.status === 'transferring' && !t.file.size);
+
+      if (!transfer) {
+        console.error('No matching transfer found for chunk');
+        return;
+      }
+
+      // Update the map with correct ID
+      this.activeTransfers.delete(transfer.id);
+      transfer.id = transferId;
+      this.activeTransfers.set(transferId, transfer);
     }
 
     try {
@@ -142,8 +155,13 @@ export class FileTransferService {
         return;
       }
 
-      // Store chunk (in a real implementation, you'd accumulate chunks and reconstruct the file)
-      // For this demo, we'll simulate progress
+      // Store chunk for file reconstruction
+      if (!this.receivedChunks.has(transferId)) {
+        this.receivedChunks.set(transferId, []);
+      }
+      const chunks = this.receivedChunks.get(transferId)!;
+      chunks[chunkIndex] = decryptedData;
+
       const totalChunks = Math.ceil(transfer.file.size / FileTransferService.CHUNK_SIZE);
       transfer.progress = ((chunkIndex + 1) / totalChunks) * 100;
       transfer.speed = this.calculateTransferSpeed(transfer, (chunkIndex + 1) * FileTransferService.CHUNK_SIZE);
@@ -151,8 +169,17 @@ export class FileTransferService {
       this.transferCallbacks.get(transferId)?.onProgress(transfer);
 
       if (isLastChunk) {
+        // Reconstruct the complete file
+        const completeFile = await this.reconstructFile(transferId, transfer.file.name);
+
+        // Download the file automatically
+        this.downloadFile(completeFile, transfer.file.name);
+
         transfer.status = 'completed';
         this.transferCallbacks.get(transferId)?.onComplete(transfer);
+
+        // Clean up
+        this.receivedChunks.delete(transferId);
       }
     } catch (error) {
       this.handleTransferError(transferId, `Failed to process chunk ${chunkIndex}: ${error}`);
@@ -230,5 +257,35 @@ export class FileTransferService {
       transfer.status = 'failed';
       this.transferCallbacks.get(transferId)?.onError(transfer, error);
     }
+  }
+
+  private async reconstructFile(transferId: string, fileName: string): Promise<Blob> {
+    const chunks = this.receivedChunks.get(transferId);
+    if (!chunks) {
+      throw new Error('No chunks found for transfer');
+    }
+
+    // Combine all chunks into a single ArrayBuffer
+    const totalSize = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
+    const combined = new Uint8Array(totalSize);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      combined.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+
+    return new Blob([combined], { type: 'application/octet-stream' });
+  }
+
+  private downloadFile(blob: Blob, fileName: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Toaster, toast } from 'react-hot-toast';
 import { Header } from './components/Header';
 import { ConnectionPanel } from './components/ConnectionPanel';
 import { FileDropZone } from './components/FileDropZone';
@@ -46,9 +47,13 @@ function App() {
       setConnectionStatus('connected');
       setConnectedPeers(prev => [...prev.filter(id => id !== peerId), peerId]);
       setConnectionError('');
+      toast.success(`🔗 Connected to peer: ${peerId.substring(0, 8)}...`, {
+        duration: 4000,
+        position: 'top-right'
+      });
     });
 
-    peerService.onData((peerId, data) => {
+    peerService.onData(async (peerId, data) => {
       console.log(`Received data from peer ${peerId}:`, data);
 
       if (!data || typeof data !== 'object' || !data.type) {
@@ -58,6 +63,56 @@ function App() {
 
       if (data.type === 'transfer-start') {
         console.log('Incoming file transfer:', data);
+
+        // Create a mock file object for the incoming transfer
+        const mockFile = new File([''], data.fileName, { type: 'application/octet-stream' });
+        Object.defineProperty(mockFile, 'size', { value: data.fileSize, writable: false });
+
+        try {
+          // Create incoming transfer
+          const transferId = await fileTransferService.startFileTransfer(
+            mockFile,
+            peerId,
+            (transfer: FileTransfer) => {
+              setTransfers(prev => prev.map(t => t.id === transfer.id ? transfer : t));
+            },
+            (transfer: FileTransfer) => {
+              setTransfers(prev => prev.map(t => t.id === transfer.id ? transfer : t));
+              toast.success(`📥 File received: ${transfer.file.name}`, {
+                duration: 4000,
+                position: 'top-right'
+              });
+            },
+            (transfer: FileTransfer, error: string) => {
+              console.error(`Transfer ${transfer.id} failed:`, error);
+              setTransfers(prev => prev.map(t => t.id === transfer.id ? transfer : t));
+              toast.error(`❌ Transfer failed: ${error}`, {
+                duration: 4000,
+                position: 'top-right'
+              });
+            }
+          );
+
+          // Update the transfer with the actual transfer ID from the sender
+          const transfer = fileTransferService.getTransfer(transferId);
+          if (transfer) {
+            transfer.id = data.transferId; // Use sender's transfer ID
+            transfer.status = 'transferring';
+            setTransfers(prev => [...prev, transfer]);
+
+            toast(`📥 Receiving: ${data.fileName}`, {
+              duration: 3000,
+              position: 'top-right',
+              icon: '📥'
+            });
+          }
+        } catch (error) {
+          console.error('Failed to setup incoming transfer:', error);
+          toast.error('❌ Failed to setup incoming transfer', {
+            duration: 4000,
+            position: 'top-right'
+          });
+        }
       } else if (data.type === 'file-chunk') {
         fileTransferService.handleIncomingChunk(data);
       }
@@ -72,6 +127,10 @@ function App() {
         }
         return updated;
       });
+      toast.error(`💔 Peer disconnected: ${peerId.substring(0, 8)}...`, {
+        duration: 3000,
+        position: 'top-right'
+      });
     });
 
     // Set up ready callback
@@ -79,6 +138,10 @@ function App() {
       console.log('App: Peer ready callback triggered with ID:', peerId);
       setMyPeerId(peerId);
       setIsPeerReady(true);
+      toast.success(`✅ GhostPeer ready! ID: ${peerId.substring(0, 8)}...`, {
+        duration: 3000,
+        position: 'top-right'
+      });
     });
 
     // Set up error callback
@@ -182,6 +245,12 @@ function App() {
         if (transfer) {
           setTransfers(prev => [...prev, transfer]);
 
+          toast(`📤 Sending: ${file.name}`, {
+            duration: 3000,
+            position: 'top-right',
+            icon: '📤'
+          });
+
           fileTransferService.sendFileChunks(transferId, (data: any) => {
             return peerService.sendData(peerId, data);
           });
@@ -209,6 +278,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-emerald-50">
+      <Toaster />
       <Header
         connectionCount={connectedPeers.length}
         isConnected={connectionStatus === 'connected'}
